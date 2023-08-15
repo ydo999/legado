@@ -2,6 +2,8 @@
 
 package io.legado.app.ui.main
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.text.format.DateUtils
 import android.view.MenuItem
@@ -25,6 +27,7 @@ import io.legado.app.constant.EventBus
 import io.legado.app.constant.PreferKey
 import io.legado.app.databinding.ActivityMainBinding
 import io.legado.app.databinding.DialogEditTextBinding
+import io.legado.app.help.AppUpdate
 import io.legado.app.help.AppWebDav
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.config.AppConfig
@@ -35,6 +38,7 @@ import io.legado.app.lib.dialogs.alert
 import io.legado.app.lib.theme.elevation
 import io.legado.app.lib.theme.primaryColor
 import io.legado.app.service.BaseReadAloudService
+import io.legado.app.ui.about.UpdateDialog
 import io.legado.app.ui.main.bookshelf.BaseBookshelfFragment
 import io.legado.app.ui.main.bookshelf.style1.BookshelfFragment1
 import io.legado.app.ui.main.bookshelf.style2.BookshelfFragment2
@@ -42,11 +46,14 @@ import io.legado.app.ui.main.explore.ExploreFragment
 import io.legado.app.ui.main.my.MyFragment
 import io.legado.app.ui.main.rss.RssFragment
 import io.legado.app.ui.widget.dialog.TextDialog
+import io.legado.app.ui.widget.dialog.WaitDialog
 import io.legado.app.utils.*
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import splitties.init.appCtx
+import java.util.Calendar
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
@@ -72,6 +79,9 @@ class MainActivity : VMBaseActivity<ActivityMainBinding, MainViewModel>(),
     private val fragmentMap = hashMapOf<Int, Fragment>()
     private var bottomMenuCount = 4
     private val realPositions = arrayOf(idBookshelf, idExplore, idRss, idMy)
+    private val updatePrefsName = "update_prefs"
+    private val installationTimeField = "installationTime"
+    private val updateInMillis = 14 * 24 * 60 * 60 * 1000
     private val adapter by lazy {
         TabFragmentPageAdapter(supportFragmentManager)
     }
@@ -125,8 +135,47 @@ class MainActivity : VMBaseActivity<ActivityMainBinding, MainViewModel>(),
         return super.dispatchTouchEvent(ev)
     }
 
+    private val waitDialog by lazy {
+        WaitDialog(this)
+    }
+
+    private fun checkUpdate() {
+        waitDialog.show()
+        AppUpdate.gitHubUpdate?.run {
+            check(lifecycleScope)
+                .onSuccess {
+                    val info =
+                        AppUpdate.UpdateInfo("App更新", it.updateLog, it.downloadUrl, it.fileName)
+                    showDialogFragment(
+                        UpdateDialog(info)
+                    )
+                }.onError {
+                    appCtx.toastOnUi("${getString(R.string.check_update)}\n${it.localizedMessage}")
+                }.onFinally {
+                    waitDialog.dismiss()
+                }
+        }
+    }
+
     override fun onPostCreate(savedInstanceState: Bundle?) {
         super.onPostCreate(savedInstanceState)
+        val prefs: SharedPreferences = getSharedPreferences(updatePrefsName, Context.MODE_PRIVATE)
+        val installationTime: Long = prefs.getLong(installationTimeField, 0)
+        if (installationTime == 0L) {
+            // 如果是第一次运行程序，就记录当前时间为安装时间
+            val currentTime: Long = Calendar.getInstance().timeInMillis
+            prefs.edit().putLong(installationTimeField, currentTime).apply()
+        } else {
+            // 如果不是第一次运行程序，就判断是否需要提醒更新
+            val currentTime: Long = Calendar.getInstance().timeInMillis
+            val timeSinceInstallation: Long = currentTime - installationTime
+            if (timeSinceInstallation >= updateInMillis) {
+                // 提醒更新
+                checkUpdate()
+                // 更新安装时间为当前时间，以便下次提醒
+                prefs.edit().putLong(installationTimeField, currentTime).apply()
+            }
+        }
         lifecycleScope.launch {
             //隐私协议
             if (!privacyPolicy()) return@launch

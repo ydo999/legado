@@ -5,6 +5,8 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -24,6 +26,7 @@ import io.legado.app.ui.book.read.page.entities.TextPos
 import io.legado.app.ui.book.read.page.entities.column.*
 import io.legado.app.ui.book.read.page.provider.ChapterProvider
 import io.legado.app.ui.book.read.page.provider.TextPageFactory
+import io.legado.app.ui.book.search.SearchUpdate
 import io.legado.app.utils.*
 import kotlin.math.min
 
@@ -31,6 +34,8 @@ import kotlin.math.min
  * 阅读内容视图
  */
 class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
+    private val handler = Handler(Looper.getMainLooper())
+    private var dialogDisplay = true
     var selectAble = context.getPrefBoolean(PreferKey.textSelectAble, true)
     var upView: ((TextPage) -> Unit)? = null
     private val selectedPaint by lazy {
@@ -69,6 +74,12 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
 
     init {
         callBack = activity as CallBack
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        // 在视图销毁时移除所有未执行的任务
+        handler.removeCallbacksAndMessages(null)
     }
 
     /**
@@ -111,6 +122,26 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         cacheIncreased = false
     }
 
+    private fun lastChapterRemind() {
+        if (textPage.readProgress == "100.0%" && dialogDisplay && textPage.pageSize <= 2) {
+            val bookName = ReadBook.book?.name
+            val ct = textPage.text.count()
+            when {
+                ct < 100 || textPage.text.contains("获取正文失败") || textPage.text.contains("内容为空") ||
+                        textPage.text.contains("手打中") ||
+                        textPage.text.contains("章节内容为空") || textPage.text.contains("加载目录失败") -> {
+                    dialogDisplay = false
+                    handler.postDelayed({
+                        if (bookName != null) {
+                            SearchUpdate.update(this.context, bookName)
+                        }
+                        dialogDisplay = true
+                    }, ct * 10L)
+                }
+            }
+        }
+    }
+
     /**
      * 绘制页面
      */
@@ -119,6 +150,7 @@ class ContentTextView(context: Context, attrs: AttributeSet?) : View(context, at
         textPage.lines.forEach { textLine ->
             drawLine(canvas, textPage, textLine, relativeOffset)
         }
+        lastChapterRemind()
         if (!callBack.isScroll) return
         //滚动翻页
         if (!pageFactory.hasNext()) return

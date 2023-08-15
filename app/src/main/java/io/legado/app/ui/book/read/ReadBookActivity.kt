@@ -2,7 +2,11 @@ package io.legado.app.ui.book.read
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
@@ -56,6 +60,8 @@ import io.legado.app.ui.book.read.page.ContentTextView
 import io.legado.app.ui.book.read.page.ReadView
 import io.legado.app.ui.book.read.page.entities.PageDirection
 import io.legado.app.ui.book.read.page.provider.TextPageFactory
+import io.legado.app.ui.book.search.SearchUpdate
+import io.legado.app.ui.book.search.SearchUpdateDialog
 import io.legado.app.ui.book.searchContent.SearchContentActivity
 import io.legado.app.ui.book.searchContent.SearchResult
 import io.legado.app.ui.book.source.edit.BookSourceEditActivity
@@ -92,6 +98,29 @@ class ReadBookActivity : BaseReadBookActivity(),
     AutoReadDialog.CallBack,
     TxtTocRuleDialog.CallBack,
     ColorPickerDialogListener {
+    private val receiver = DialogBroadcastReceiver()
+
+    // 广播接收器
+    inner class DialogBroadcastReceiver : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val author = intent.getStringExtra("author")!!
+            val name = intent.getStringExtra("name")!!
+            val coverUrl = intent.getStringExtra("coverUrl")
+            val bookUrl = intent.getStringExtra("bookUrl")!!
+            val latestChapterTitle = intent.getStringExtra("latestChapterTitle")
+            val bookInfo = SearchUpdate.BookInfo(
+                author,
+                name,
+                coverUrl,
+                bookUrl,
+                latestChapterTitle
+            )
+            // 接收到广播，弹出弹框
+            showDialogFragment(
+                SearchUpdateDialog(bookInfo)
+            )
+        }
+    }
 
     private val tocActivity =
         registerForActivityResult(TocActivityResult()) {
@@ -208,6 +237,9 @@ class ReadBookActivity : BaseReadBookActivity(),
             }
             finish()
         }
+        // 注册广播接收器
+        val intentFilter = IntentFilter("com.app.DIALOG_ACTION")
+        registerReceiver(receiver, intentFilter)
     }
 
     override fun onPostCreate(savedInstanceState: Bundle?) {
@@ -1354,6 +1386,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         if (!BuildConfig.DEBUG) {
             Backup.autoBack(this)
         }
+        unregisterReceiver(receiver)
     }
 
     override fun observeLiveBus() = binding.run {
